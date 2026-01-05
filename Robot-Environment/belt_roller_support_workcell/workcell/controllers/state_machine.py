@@ -115,29 +115,36 @@ class WorkcellStateMachine:
     def is_done(self) -> bool:
         return self.completed_units >= self.target_units
 
-def _spawn_next_part(self) -> None:
-    remaining = [p for p in self.unit.required if p not in self.unit.received]
-    if not remaining:
-        return
 
-    part = remaining[0]
-    quality = Quality.DEFECT if random.random() < self.defect_rate else Quality.OK
 
-    asset = self.catalog.get_part(part, quality)
+    @property
+    def done(self) -> bool:
+        """Backwards-compatible flag used by some runners."""
+        return self.is_done()
 
-    obj = self.spawner.spawn(
-        asset,
-        position=self.points.spawn_a08,
-        prefix=f"{part.value}_{quality.value}",   # <-- readable prim grouping
-    )
-    self._active_part = ActivePart(prim_path=obj.prim_path, part=part, quality=quality)
+    def _spawn_next_part(self) -> None:
+        remaining = [p for p in self.unit.required if p not in self.unit.received]
+        if not remaining:
+            return
 
-    self.conv_a08.add_item(obj.prim_path, start_s=0.0)
+        part = remaining[0]
+        quality = Quality.DEFECT if random.random() < self.defect_rate else Quality.OK
 
-    if self.unit.start_time is None:
-        self.unit.start_time = self.stats.sim_time_s
+        asset = self.catalog.get_part(part, quality)
 
-    log.info("Spawned part %s (%s)", part.value, quality.value)
+        obj = self.spawner.spawn(
+            asset,
+            position=self.points.spawn_a08,
+            prefix=f"{part.value}_{quality.value}",   # readable prim grouping
+        )
+        self._active_part = ActivePart(prim_path=obj.prim_path, part=part, quality=quality)
+
+        self.conv_a08.add_item(obj.prim_path, start_s=0.0)
+
+        if self.unit.start_time is None:
+            self.unit.start_time = self.stats.sim_time_s
+
+        log.info("Spawned part %s (%s)", part.value, quality.value)
 
     def _scrap_current_unit(self, reason: str) -> None:
         log.warning("Scrapping unit: %s", reason)
@@ -148,9 +155,16 @@ def _spawn_next_part(self) -> None:
             as2 = self.catalog.assembled_step(2)
 
             o1 = self.spawner.spawn(as1, position=self.points.human_zone)
-            o2 = self.spawner.spawn(as2, position=(self.points.human_zone[0] + 0.2, self.points.human_zone[1], self.points.human_zone[2]))
+            o2 = self.spawner.spawn(
+                as2,
+                position=(
+                    self.points.human_zone[0] + 0.2,
+                    self.points.human_zone[1],
+                    self.points.human_zone[2],
+                ),
+            )
 
-            # immediately move them into bin area (illusion)
+            # delete shortly (illusion)
             self.stats.defer_delete(o1.prim_path, delay_s=1.0)
             self.stats.defer_delete(o2.prim_path, delay_s=1.0)
         except Exception as e:
@@ -165,9 +179,9 @@ def _spawn_next_part(self) -> None:
         self.time_in_state = 0.0
 
     def step(self, dt: float, set_pose_fn) -> None:
-        """
-        Called every simulation step.
-        `set_pose_fn(prim_path, pos_xyz)` should update a prim pose (orientation kept).
+        """Called every simulation step.
+
+        set_pose_fn(prim_path, pos_xyz) should update the prim's world position.
         """
         self.time_in_state += dt
 
@@ -201,7 +215,9 @@ def _spawn_next_part(self) -> None:
                 if self._active_part.quality == Quality.DEFECT:
                     # Not picked by UR10 -> scrap this unit
                     self.spawner.despawn(self._active_part.prim_path)
-                    self._scrap_current_unit(f"Defective part not picked by UR10: {self._active_part.part.value}")
+                    self._scrap_current_unit(
+                        f"Defective part not picked by UR10: {self._active_part.part.value}"
+                    )
                     return
 
                 # Good: transfer to A23 (teleport to start A23 and continue)
@@ -223,7 +239,12 @@ def _spawn_next_part(self) -> None:
                 # UR5 "takes" the part -> despawn part and mark received
                 self.spawner.despawn(self._active_part.prim_path)
                 self.unit.received.add(self._active_part.part)
-                log.info("UR5 received part: %s (%d/%d)", self._active_part.part.value, len(self.unit.received), len(self.unit.required))
+                log.info(
+                    "UR5 received part: %s (%d/%d)",
+                    self._active_part.part.value,
+                    len(self.unit.received),
+                    len(self.unit.required),
+                )
                 self._active_part = None
 
                 if len(self.unit.received) >= len(self.unit.required):
@@ -280,7 +301,12 @@ def _spawn_next_part(self) -> None:
                 self.stats.record_cycle(start_s=start, end_s=end)
 
                 self.completed_units += 1
-                log.info("✅ Completed unit %d / %d (cycle=%.2fs)", self.completed_units, self.target_units, end - start)
+                log.info(
+                    "✅ Completed unit %d / %d (cycle=%.2fs)",
+                    self.completed_units,
+                    self.target_units,
+                    end - start,
+                )
 
                 # reset for next unit
                 self.unit = UnitBuild(required=list(self.unit.required))
