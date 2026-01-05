@@ -81,7 +81,8 @@ class Spawner:
         prim_path = f"{self._root}/{base}_{idx:04d}"
         ensure_xform(prim_path)
 
-        add_reference(str(asset.usd_path), prim_path)
+        usd_ref = str(asset.usd_path).replace('\\', '/')
+        add_reference(prim_path, usd_ref)
         set_world_pose(prim_path, position, orientation_xyzw)
 
         log.debug("Spawned %s from %s at %s", prim_path, asset.usd_path, position)
